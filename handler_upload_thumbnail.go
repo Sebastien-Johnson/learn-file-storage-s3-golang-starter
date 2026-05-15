@@ -1,13 +1,12 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -40,6 +39,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
+
 	// TODO: implement the upload here
 	fileData, fileHeader, err := r.FormFile("thumbnail")
 	if err != nil {
@@ -62,7 +62,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 
 	if video.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't get video", err)
+		respondWithError(w, http.StatusUnauthorized, "User not author of video", err)
 		return
 	}
 
@@ -71,15 +71,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		mediaType: mediaType,
 	}
 
-	videoThumbnails[videoID] = newThumbnail
+	//videoThumbnails[videoID] = newThumbnail
+	//thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
 
-	err = cfg.db.UpdateVideo(database.Video{
-		ID:           videoID,
-		CreatedAt:    video.CreatedAt,
-		UpdatedAt:    time.Now(),
-		ThumbnailURL: fmt.Sprintf("http://localhost:%d/api/thumbnails/%s", cfg.port, videoID),
-		VideoURL:     video.VideoURL,
-	})
+	thumbDataStr := base64.StdEncoding.EncodeToString(newThumbnail.data)
+	
+	dataURL := fmt.Sprintf("data:%s;base64,%s", newThumbnail.mediaType, thumbDataStr)
+	video.ThumbnailURL = &dataURL
+	
+	err = cfg.db.UpdateVideo(video)
 
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't update video", err)
