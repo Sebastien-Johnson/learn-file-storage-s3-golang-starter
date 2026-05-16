@@ -1,10 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -49,12 +51,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	mediaType := fileHeader.Header.Get("Content-Type")
 
-	imgData, err := io.ReadAll(fileData)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't get thumbnail", err)
-		return
-	}
-
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't get video", err)
@@ -66,19 +62,33 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	newThumbnail := thumbnail{
-		data:      imgData,
-		mediaType: mediaType,
+	
+	contentTypeSlice := strings.Split(mediaType, "/")
+	contentType := contentTypeSlice[1]
+	
+	videoIDStr := uuid.UUID.String(videoID)
+	//create new URL with video ID and content type header
+	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDStr, contentType)
+	
+	//create new video file path
+	thumbnailFilePath := filepath.Join(cfg.assetsRoot, videoIDStr+"."+contentType)
+	//create new video file at path
+	thumbnailFile, err := os.Create(thumbnailFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't create new file from path", err)
+		return
 	}
 
-	//videoThumbnails[videoID] = newThumbnail
-	//thumbnailURL := fmt.Sprintf("http://localhost:%s/api/thumbnails/%s", cfg.port, videoID)
-
-	thumbDataStr := base64.StdEncoding.EncodeToString(newThumbnail.data)
-	
-	dataURL := fmt.Sprintf("data:%s;base64,%s", newThumbnail.mediaType, thumbDataStr)
+	//write file date to new video file location
+	_, err = io.Copy(thumbnailFile, fileData)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't copy image data into file", err)
+		return
+	}
+	//save thumnail to video struct
 	video.ThumbnailURL = &dataURL
 	
+	//save updated video to db
 	err = cfg.db.UpdateVideo(video)
 
 	if err != nil {
