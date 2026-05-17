@@ -110,17 +110,13 @@ func main() {
 	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	mux.HandleFunc("POST /api/refresh", cfg.handlerRefresh)
 	mux.HandleFunc("POST /api/revoke", cfg.handlerRevoke)
-
 	mux.HandleFunc("POST /api/users", cfg.handlerUsersCreate)
-
 	mux.HandleFunc("POST /api/videos", cfg.handlerVideoMetaCreate)
 	mux.HandleFunc("POST /api/thumbnail_upload/{videoID}", cfg.handlerUploadThumbnail)
 	mux.HandleFunc("POST /api/video_upload/{videoID}", cfg.handlerUploadVideo)
 	mux.HandleFunc("GET /api/videos", cfg.handlerVideosRetrieve)
 	mux.HandleFunc("GET /api/videos/{videoID}", cfg.handlerVideoGet)
-	//mux.HandleFunc("GET /api/thumbnails/{videoID}", cfg.handlerThumbnailGet)
 	mux.HandleFunc("DELETE /api/videos/{videoID}", cfg.handlerVideoMetaDelete)
-
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 
 	srv := &http.Server{
