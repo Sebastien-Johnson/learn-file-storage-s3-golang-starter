@@ -1,32 +1,26 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
 )
 
 func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Request) {
-	const maxMemory = 10 << 20
-	err := r.ParseMultipartForm(maxMemory)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to parse multiple data points", err)
-		return
-	}
-
 	videoIDString := r.PathValue("videoID")
 	videoID, err := uuid.Parse(videoIDString)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid ID", err)
 		return
 	}
-
+	
 	token, err := auth.GetBearerToken(r.Header)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't find JWT", err)
@@ -41,56 +35,71 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
 
+	const maxMemory = 10 << 20
+	r.ParseMultipartForm(maxMemory)
 
 	// TODO: implement the upload here
+	//get thumbnail data and header from request
 	fileData, fileHeader, err := r.FormFile("thumbnail")
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't get thumbnail", err)
+		respondWithError(w, http.StatusUnauthorized, "Couldn't parse thumbnail", err)
 		return
 	}
 
-	mediaType := fileHeader.Header.Get("Content-Type")
+	defer fileData.Close()
 
+	//get content type
+	mimeType, _, err := mime.ParseMediaType(fileHeader.Header.Get("Content-Type"))
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid content type", err)
+		return
+	}
+	if mimeType != "image/jpeg" && mimeType != "image/png" {
+		respondWithError(w, http.StatusBadRequest, "Missing content type for thumbnail", err)
+		return
+	}
+
+	//create random string for new asset file names
+	newPath := make([]byte, 32)
+	rand.Read(newPath)
+	newPathStr := base64.RawURLEncoding.EncodeToString(newPath)
+	
+	//create asset file path
+	assetPath := getAssetPath(newPathStr, mimeType)
+	assetDiskPath := cfg.getAssetDiskPath(assetPath)
+	
+	//create or update file
+	newFile, err := os.Create(assetDiskPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to create or update file on server", err)
+	}
+	defer newFile.Close()
+
+	//copy file data into file
+	if _, err = io.Copy(newFile, fileData); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't copy data into file", err)
+		return
+	}
+	
+	//get video from db by video ID
 	video, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't get video", err)
 		return
 	}
 
+	//check if user is author of video
 	if video.UserID != userID {
 		respondWithError(w, http.StatusUnauthorized, "User not author of video", err)
 		return
 	}
 
-	
-	contentTypeSlice := strings.Split(mediaType, "/")
-	contentType := contentTypeSlice[1]
-	
-	videoIDStr := uuid.UUID.String(videoID)
-	//create new URL with video ID and content type header
-	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDStr, contentType)
-	
-	//create new video file path
-	thumbnailFilePath := filepath.Join(cfg.assetsRoot, videoIDStr+"."+contentType)
-	//create new video file at path
-	thumbnailFile, err := os.Create(thumbnailFilePath)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't create new file from path", err)
-		return
-	}
+	//get and save thumbnail to video struct in db
+	url := cfg.getAssetURL(assetPath)
+	video.ThumbnailURL = &url
 
-	//write file date to new video file location
-	_, err = io.Copy(thumbnailFile, fileData)
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't copy image data into file", err)
-		return
-	}
-	//save thumnail to video struct
-	video.ThumbnailURL = &dataURL
-	
 	//save updated video to db
 	err = cfg.db.UpdateVideo(video)
-
 	if err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Couldn't update video", err)
 		return

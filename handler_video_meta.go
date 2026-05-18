@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"os/exec"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -118,4 +121,40 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 	}
 	log.Println(videos)
 	respondWithJSON(w, http.StatusOK, videos) 
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	vidCmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath, )
+	var buffer bytes.Buffer
+	vidCmd.Stdout = &buffer
+	err := vidCmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	var output struct {
+		Streams []struct{
+			Height int `json:"height"`
+			Width int `json:"width"`
+		 } `json:"streams"`
+		
+	}
+	
+
+	err = json.Unmarshal(buffer.Bytes(), &output)
+	if err != nil {
+		return "", err
+	}
+	if len(output.Streams) == 0  {
+		return "", errors.New("Invalid video dimensions")
+	}
+	height := output.Streams[0].Height
+	width := output.Streams[0].Width
+	
+	if width == 16*height/9 {
+		return "16:9", nil
+	} else if height == 16*width/9 {
+		return "9:16", nil
+	}
+	return "other", nil
 }
