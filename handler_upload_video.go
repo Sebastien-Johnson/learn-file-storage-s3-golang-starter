@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	
+	"log"
+	"os/exec"
+
 	"mime"
 	"net/http"
 	"os"
@@ -102,7 +104,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	newPath := make([]byte, 32)
 	rand.Read(newPath)
 	newPathStr := base64.RawURLEncoding.EncodeToString(newPath)
-
+	log.Print(newPathStr)
 
 	asRatio, err := getVideoAspectRatio(tempFile.Name())
 	if err != nil {
@@ -119,23 +121,51 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	s3Path := pathPrefix+newPathStr
+	//s3key == path to obj in s3
 	s3Key := getAssetPath(s3Path, contentType)
+	//give it temp file which exist in root
+	fastStartPath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to generate fast start key", err)
+		return
+	}
+	fastStartBody, err := os.Open(fastStartPath)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Unable to open post-process path", err)
+		return
+	}
+	//close after running
+	defer os.Remove(fastStartBody.Name())
+	defer fastStartBody.Close()
+	//defer is lifo
 
-	tempFileBody := io.Reader(tempFile)
+	fastFileBody := io.Reader(fastStartBody)
 
 	//puts object into s3
 	_, err = cfg.s3Client.PutObject(context.Background(), &s3.PutObjectInput{
 		Bucket: &cfg.s3Bucket,
 		Key: &s3Key,
-		Body: tempFileBody,
+		Body: fastFileBody,
 		ContentType: &contentType,
 	})
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Unable to store object in bucket", err)
 		return
 	}
-
+	//s3 url to video obj in bucket: bucketName/region/aspectRatio/s3key/mediaType
 	newVidURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3Key)
 	video.VideoURL = &newVidURL
 	cfg.db.UpdateVideo(video)
+}
+
+//accepts path to temp file and adds .processing
+func processVideoForFastStart(filePath string) (string, error) {
+	newPath := filePath+".processing"
+	fastStart := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", newPath)
+	err := fastStart.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return newPath, nil
 }
