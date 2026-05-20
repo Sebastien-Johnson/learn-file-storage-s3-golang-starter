@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"os/exec"
 
@@ -99,13 +98,13 @@ func (cfg *apiConfig) handlerVideoGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	presignedVideo, err := cfg.dbVideoToSignedVideo(video)
+	
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Couldn't get pre-signed video", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, presignedVideo)
+	respondWithJSON(w, http.StatusOK, video)
 }
 
 func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Request) {
@@ -125,16 +124,7 @@ func (cfg *apiConfig) handlerVideosRetrieve(w http.ResponseWriter, r *http.Reque
 		respondWithError(w, http.StatusInternalServerError, "Couldn't retrieve videos", err)
 		return
 	}
-	log.Printf("vidoe slice:%s", videos)
-	for i, v := range videos {
-
-		pv, err := cfg.dbVideoToSignedVideo(v)
-		if err != nil {
-			respondWithError(w, http.StatusInternalServerError, "Couldn't presign retrieved video", err)
-			return
-		}
-		videos[i] = pv
-	}
+	
 	
 	respondWithJSON(w, http.StatusOK, videos) 
 }

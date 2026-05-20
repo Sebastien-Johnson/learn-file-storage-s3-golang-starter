@@ -8,8 +8,6 @@ import (
 	"io"
 	"log"
 	"os/exec"
-	"strings"
-	"time"
 
 	"mime"
 	"net/http"
@@ -17,7 +15,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
-	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
 	"github.com/google/uuid"
 )
 
@@ -115,12 +112,13 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	pathPrefix := ""
-	if asRatio == "16:9" {
-		pathPrefix = "landscape/"
-	} else if asRatio == "9:16" {
-		pathPrefix = "portrait/"
-	} else {
-		pathPrefix = "other/"
+	switch asRatio {
+		case "16:9":
+			pathPrefix = "landscape/"
+		case "9:16":
+			pathPrefix = "portrait/"
+		default:
+			pathPrefix = "other/"
 	}
 
 	s3Path := pathPrefix+newPathStr
@@ -156,21 +154,12 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	
-	presignedURL := cfg.s3Bucket+","+s3Key
-	video.VideoURL = &presignedURL
-	presignedVideo, err := cfg.dbVideoToSignedVideo(video)
-	if err != nil {
-		respondWithError(w, http.StatusBadRequest, "Unable to create pre-signed video", err)
-		return
-	}
-
 	//s3 url to video obj in bucket: bucketName/region/aspectRatio/s3key/mediaType
-	newVidURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", cfg.s3Bucket, cfg.s3Region, s3Key)
+	newVidURL := fmt.Sprintf("https://%s.cloudfront.net/%s", cfg.s3CfDistribution, s3Key)
 
 	video.VideoURL = &newVidURL
 	
-	cfg.db.UpdateVideo(presignedVideo)
+	cfg.db.UpdateVideo(video)
 }
 
 //accepts path to temp file and adds .processing
@@ -185,33 +174,3 @@ func processVideoForFastStart(filePath string) (string, error) {
 	return newPath, nil
 }
 
-func generatePresignedURL(s3Client *s3.Client, bucket, key string, expireTime time.Duration) (string, error) {
-	presignClient := s3.NewPresignClient(s3Client)
-	presignRequest, err := presignClient.PresignGetObject(context.Background(), &s3.GetObjectInput{
-		Bucket: &bucket,
-		Key: &key,
-	}, s3.WithPresignExpires(expireTime))
-	if err != nil {
-		return "", err
-	}
-	
-	return presignRequest.URL, nil
-}
-
-func (cfg *apiConfig) dbVideoToSignedVideo(video database.Video) (database.Video, error) {
-	if video.VideoURL == nil {
-		return video, nil
-	}
-	params := strings.Split(*video.VideoURL, ",")
-	
-	if len(params) != 2 {
-		return video, nil
-	}
-	
-	presignURL, err := generatePresignedURL(cfg.s3Client, params[0], params[1], time.Minute)
-	if err != nil {
-		return database.Video{}, err
-	}
-	video.VideoURL = &presignURL
-	return video, nil
-}
