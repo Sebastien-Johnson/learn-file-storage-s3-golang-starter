@@ -130,6 +130,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/videos/{videoID}", cfg.handlerVideoMetaDelete)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerReset)
 
+
 	srv := &http.Server{
 		Addr:    ":" + port,
 		Handler: mux,
